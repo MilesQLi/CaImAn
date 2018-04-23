@@ -61,11 +61,13 @@ except:
 
 #%%
 decay_time = 1.5
-gSig = (7,7)
+gSig = (10,10)
 rval_thr = 1
 epochs = 2
 fr  = 15
 len_file =  2646#1885#1885 1815
+initbatch = 500
+
 #fls = ['/mnt/ceph/neuro/zebra/05292014Fish1-4/images/mmap_tifs/Plane17_100_500_400_-350_mc_noinit_small.tif']
 #K = 10
 #min_num_trial = 50
@@ -85,20 +87,19 @@ len_file =  2646#1885#1885 1815
 #K = 100
 #min_num_trial = 50
 
-fls = ['example_movies/025_003_000_5_green_02_nobord.hdf5']
-
-
+fls = ['example_movies/025_003_000_5_green_02.tif']
 mmm = cm.load(fls,subindices = 0)
 dims = mmm.shape
-K = np.maximum(K,np.round(600/1602720*np.prod(mmm.shape)).astype(np.int))
-min_num_trial = np.maximum(min_num_trial,np.round(200/1602720*np.prod(mmm.shape)).astype(np.int))
+
+#K = np.maximum(K,np.round(600/1602720*np.prod(mmm.shape)).astype(np.int))
+#min_num_trial = np.maximum(min_num_trial,np.round(200/1602720*np.prod(mmm.shape)).astype(np.int))
 # your list of files should look something like this
 
 
 
 print(fls)
 K = 30
-min_num_trial = 3
+min_num_trial = 5
 print([K,min_num_trial])
 
 # number of passes over the data
@@ -142,7 +143,6 @@ init_files = 1
 # number of files used for online
 online_files = len(fls) - 1
 # number of frames for initialization (presumably from the first file)
-initbatch = 200
 # maximum number of expected components used for memory pre-allocation (exaggerate here)
 expected_comps = 600
 # initial number of components
@@ -155,13 +155,13 @@ thresh_fitness_raw = scipy.special.log_ndtr(-min_SNR) * N_samples
 # total length of all files (if not known use a large number, then truncate at the end)
 T1 = len(fls) * len_file * epochs
 #%%
-compute_corr = True
+compute_corr = False
 if compute_corr:
     m = cm.load(fls)
-    mc = m.motion_correct(10,10)[0]
-    mp = (mc.computeDFF(3))
-    Cn_ = cv2.resize(mp[0].local_correlations(eight_neighbours=True, swap_dim=False),dims[::-1][:-1])
-    np.save('CN_hires_.npy', Cn_)
+    mc_ = m.motion_correct(10,10)[0]
+    mp = (mc_.computeDFF(3))
+    Cn_tot = cv2.resize(mp[0].local_correlations(eight_neighbours=True, swap_dim=False),dims[::-1][:-1])
+    np.save('CN_hires_.npy', Cn_tot)
 #%%    Initialize movie
 # load only the first initbatch frames and possibly downsample them
 if ds_factor > 1:
@@ -289,7 +289,7 @@ cnm2._prepare_object(np.asarray(Yr), T1, expected_comps, idx_components=None,
                          min_num_trial=min_num_trial, max_num_added = min_num_trial, N_samples_exceptionality=int(N_samples),
                          path_to_model = path_to_model,
                          sniper_mode = True, use_peak_max = True)
-cnm2.thresh_CNN_noisy = 0.5
+thresholds_cnn_per_epoch = [0.5,0.75]
 time_prepare = time() - t1
 #%% Run OnACID and optionally plot results in real time
 cnm2.Ab_epoch = []                       # save the shapes at the end of each epoch
@@ -334,6 +334,8 @@ if save_movie and play_reconstr:
         [int(2 * x * resize_fact) for x in cnm2.dims]))
 
 for iter in range(epochs):
+    cnm2.thresh_CNN_noisy = thresholds_cnn_per_epoch[iter]
+
     if iter > 0:
         # if not on first epoch process all files from scratch
         process_files = fls[:init_files + online_files]
@@ -432,8 +434,8 @@ if ploton:
     m = cm.load(fls)
     m = m.motion_correct(10,10)[0]
     mp = (m.computeDFF(3))
-    Cn_ = mp[0].local_correlations(eight_neighbours=True, swap_dim=False)
-    Cn_ = cv2.resize(Cn_,dims[::-1])
+    Cn_tot = mp[0].local_correlations(eight_neighbours=True, swap_dim=False)
+    Cn_tot = cv2.resize(Cn_tot,dims[::-1])
 #%% extract results from the objects and do some plotting
 if ploton:
     A, b = cnm2.Ab[:, cnm2.gnb:], cnm2.Ab[:, :cnm2.gnb].toarray()
@@ -444,9 +446,9 @@ if ploton:
         cnm2, 'OASISinstances') else [0] * C.shape[0]
 
     pl.figure()
-    crd = cm.utils.visualization.plot_contours(A, Cn_, thr=0.9, vmax = 0.25)
+    crd = cm.utils.visualization.plot_contours(A, Cn_tot, thr=0.9, vmax = 0.25)
     view_patches_bar(Yr, scipy.sparse.coo_matrix(A.tocsc()[:, :]), C[:, :], b, f,
-                     dims[0], dims[1], YrA=noisyC[cnm2.gnb:cnm2.M] - C, img=Cn_)
+                     dims[0], dims[1], YrA=noisyC[cnm2.gnb:cnm2.M] - C, img=Cn_tot)
 
     #%%
     #df_f = detrend_df_f_auto(A,b,C,f,YrA)
